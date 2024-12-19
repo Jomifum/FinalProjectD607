@@ -1,0 +1,277 @@
+---
+title: "Final Project D607"
+author: "Jose Fuentes"
+date: "2024-12-18"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The U.S. Chronic Disease Indicators (CDI) dataset is a comprehensive resource that includes data on various chronic diseases, including cardiovascular disease, diabetes, cancer, and more in a time period of 2000 to 2020. The main goal of this analysis is to explore and understand the trends and patterns of these chronic diseases across the United States over recent years. By meticulously loading, cleaning, and tidying the data, we aim to gain important statistics and insights that can inform public health strategies and interventions, ultimately helping to improve the overall health situation in the U.S.
+
+This dataset is located at:  https://catalog.data.gov/dataset/u-s-chronic-disease-indicators-cdi
+
+#Research Question
+
+"What are the geographic and demographic patterns of the top 10 chronic diseases, including cardiovascular disease, diabetes, and cancer, across the United States over the past decade, and how can these insights inform targeted public health interventions to improve overall health outcomes?"
+
+##Wrangling the Data
+#Loading the Data
+
+The first step in data analysis is to load the dataset into a usable format. In this case, we're using the read_csv() function from the readr package to load a CSV file into a data frame called chronic_disease_data. The head() function is then used to inspect the initial rows of the data frame and get a sense of its structure.
+
+#Cleaning the Data
+
+Once the data is loaded, it's crucial to clean it to ensure accuracy and consistency. This involves tasks like handling missing values, correcting data types, and removing irrelevant or inconsistent data. In this case, the data was replaced by missing values with NA, convert the DataValue column to numeric, and drop rows with missing DataValue. Other cleaning steps might involve handling outliers or standardizing the data.
+
+#Tidying the Data
+
+The final step in preparing the data for analysis is tidying it. This involves organizing the data into a clear and consistent structure. In this specific case, we identify and remove outliers using the Interquartile Range (IQR) method to ensure the data distribution is not skewed. Additionally, we normalize the DataValue column to bring all values to a common scale, facilitating comparison and analysis across different topics.
+
+```{r process}
+# Install required libraries (if not already installed)
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(readr)) install.packages("readr")
+if(!require(fastDummies)) install.packages("fastDummies")
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(forcats)) install.packages("forcats")
+if(!require(ggpubr)) install.packages("ggpubr")
+
+# Load the necessary libraries
+library(tidyverse)
+library(readr)
+library(fastDummies)
+library(tidyr)
+library(forcats)
+library(ggpubr)
+
+# Set the file path
+file_path <- "C:/Users/Dell/Downloads/U.S._Chronic_Disease_Indicators__CDI___2023_Release.csv"
+
+# Load the dataset
+chronic_disease_data <- read_csv(file_path)
+
+# View the first rows to inspect the dataset
+head(chronic_disease_data)
+
+# Step 1: Select Relevant Columns
+tidy_data <- chronic_disease_data %>%
+  select(
+    YearStart, YearEnd, LocationDesc, DataSource, Topic, Question,
+    DataValue, StratificationCategory1, Stratification1
+  ) %>%
+  rename(
+    Year = YearStart,
+    Location = LocationDesc,
+    Category = StratificationCategory1,
+    Subgroup = Stratification1
+  )
+
+# Step 2: Clean Missing or Inconsistent Data
+# Replace "-" or blank cells in DataValue with NA
+tidy_data <- tidy_data %>%
+  mutate(DataValue = na_if(DataValue, "-")) %>%
+  drop_na(DataValue) # Drop rows with NA in DataValue
+
+# Ensure DataValue is numeric
+tidy_data$DataValue <- as.numeric(tidy_data$DataValue)
+
+# Handle other missing values by imputation
+tidy_data <- tidy_data %>%
+  mutate(across(where(is.numeric), ~ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+# Step 3: Outlier Detection and Handling
+# Identify and handle outliers in DataValue
+Q1 <- quantile(tidy_data$DataValue, 0.25)
+Q3 <- quantile(tidy_data$DataValue, 0.75)
+IQR <- Q3 - Q1
+tidy_data <- tidy_data %>%
+  filter(DataValue >= (Q1 - 1.5 * IQR) & DataValue <= (Q3 + 1.5 * IQR))
+
+# Step 4: Normalize DataValue
+tidy_data <- tidy_data %>%
+  group_by(Topic) %>%
+  mutate(DataValue = (DataValue - min(DataValue)) / (max(DataValue) - min(DataValue))) %>%
+  ungroup()
+
+# Step 5: Save Cleaned Data
+write_csv(tidy_data, "cleaned_chronic_disease_data.csv")
+print("Cleaned dataset saved to 'cleaned_chronic_disease_data.csv'")
+
+```
+
+In the following chunk there is the code to find out the top 10 diseases with individuals in this dataset are living
+
+```{r topten}
+# Top 10 chronic diseases based on summed values
+top_diseases <- tidy_data %>%
+  group_by(Topic) %>%
+  summarize(Total_Value = sum(DataValue, na.rm = TRUE)) %>%
+  arrange(desc(Total_Value)) %>%
+  slice(1:10) # Top 10 diseases
+
+# View the top 10 diseases
+print(top_diseases)
+```
+
+##Summary statistics 
+```{r datavalue}
+# Step 5: Enhanced Summary Statistics
+# Include only the top 10 chronic diseases
+top_diseases <- c("Cardiovascular Disease", "Diabetes", "Cancer", 
+                  "Nutrition, Physical Activity, and Weight Status", 
+                  "Chronic Obstructive Pulmonary Disease", "Arthritis", 
+                  "Tobacco", "Asthma", "Overarching Conditions", "Oral Health")
+
+enhanced_summary <- tidy_data %>%
+  filter(Topic %in% top_diseases) %>%
+  group_by(Topic, Year, Location, Category, Subgroup) %>%
+  summarize(
+    Average_Value = mean(DataValue, na.rm = TRUE),
+    Median_Value = median(DataValue, na.rm = TRUE),
+    Std_Dev = sd(DataValue, na.rm = TRUE),
+    Count = n(),
+    Confidence_Lower = quantile(DataValue, 0.025, na.rm = TRUE),
+    Confidence_Upper = quantile(DataValue, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# View enhanced summary statistics
+print("Enhanced Summary Statistics:")
+print(enhanced_summary)
+
+# Write the enhanced summary statistics to a CSV file
+write_csv(enhanced_summary, "enhanced_summary_statistics.csv")
+print("Enhanced summary statistics saved to 'enhanced_summary_statistics.csv'")
+
+# Calculate overall summary statistics
+overall_summary <- enhanced_summary %>%
+  group_by(Topic) %>%
+  summarize(
+    Average_Value = mean(Average_Value, na.rm = TRUE),
+    Median_Value = median(Median_Value, na.rm = TRUE),
+    Std_Dev = mean(Std_Dev, na.rm = TRUE),
+    Count = sum(Count, na.rm = TRUE),
+    Confidence_Lower = min(Confidence_Lower, na.rm = TRUE),
+    Confidence_Upper = max(Confidence_Upper, na.rm = TRUE)
+  )
+
+# Print the overall summary statistics
+print("Overall Summary Statistics:")
+print(overall_summary)
+
+# Write the overall summary statistics to a CSV file
+write_csv(overall_summary, "overall_summary_statistics.csv")
+print("Overall summary statistics saved to 'overall_summary_statistics.csv'")
+```
+
+#Interpretation:
+
+The analysis of chronic disease data reveals several key insights. Conditions like cardiovascular disease, COPD, and overarching conditions exhibit high variability, indicating a wide range of values in their prevalence or severity. Additionally, several conditions, including cancer and diabetes, display skewed distributions, suggesting the presence of outliers or uneven data distribution.
+
+Regarding data coverage, conditions like cancer and cardiovascular disease have extensive data, while oral health has a relatively smaller dataset. Specific conditions like arthritis and oral health show moderate prevalence with low variability. In contrast, conditions like cancer, cardiovascular disease, and COPD exhibit high prevalence and significant variability.
+
+Understanding these trends and variations is crucial for identifying areas of concern, targeting specific interventions, and informing public health policies to address the burden of chronic diseases.
+
+## Including Plots
+
+The visualizations below help us to provide insights for making conclusions and recommendations.
+
+```{r chronic}
+
+# Ensure necessary libraries are loaded
+library(dplyr)
+library(ggplot2)
+
+# Assuming tidy_data is your cleaned data frame
+data <- tidy_data
+
+# Top 10 cities with the most cases
+top_cities <- data %>%
+  group_by(Location) %>%
+  summarize(Total_Value = sum(DataValue, na.rm = TRUE)) %>%
+  arrange(desc(Total_Value)) %>%
+  slice(1:10) # Top 10 cities
+
+# Bar plot
+city_plot <- ggplot(top_cities, aes(x = reorder(Location, -Total_Value), y = Total_Value, fill = Location)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(title = "Top 10 Cities with Most Chronic Disease Cases",
+       x = "City", y = "Total Cases") +
+  theme_minimal() +
+  coord_flip() # Horizontal bars for clarity
+
+print(city_plot)
+```
+
+#Interpretation:
+By larger cities with higher populations may naturally have more chronic disease cases. It would be helpful to normalize the data by population size to get a better understanding of the prevalence of chronic diseases in each city. Also socioeconomic Factors like income, education, and access to healthcare can influence the prevalence of chronic diseases. Analyzing these factors for the top 10 cities could provide valuable insights.
+
+Also Lifestyle factors such as diet, physical activity, and smoking habits can contribute to the development of chronic diseases.
+
+```{r gender}
+# Filter Gender-specific rows
+gender_data <- tidy_data %>%
+  filter(Category == "Gender") %>%
+  group_by(Subgroup) %>%
+  summarize(Total_Value = sum(DataValue, na.rm = TRUE))
+
+# Calculate percentages
+gender_data <- gender_data %>%
+  mutate(Percentage = Total_Value / sum(Total_Value) * 100)
+
+# Pie chart with percentage labels
+gender_pie <- ggplot(gender_data, aes(x = "", y = Total_Value, fill = Subgroup)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  labs(title = "Chronic Disease Cases by Gender", fill = "Gender") +
+  theme_void()
+
+print(gender_pie)
+
+```
+
+#Interpretation:
+With a slightly higher representation of females in the dataset, gender-specific health strategies could be developed to address the unique health needs of women.
+
+```{r overtime}
+# Summarize values by Year
+time_trend <- tidy_data %>%
+  group_by(Year) %>%
+  summarize(Total_Value = sum(DataValue, na.rm = TRUE))
+
+# Line plot
+time_plot <- ggplot(time_trend, aes(x = Year, y = Total_Value)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red") +
+  labs(title = "Trends of Chronic Diseases Over Time",
+       x = "Year", y = "Total Cases") +
+  theme_minimal()
+
+print(time_plot)
+
+```
+
+#Interpretation: 
+The line plot shows a clear upward trend in the number of chronic disease cases over the years, with a significant increase starting around 2009. This suggests a potential rise in the prevalence or diagnosis of chronic diseases during this period.
+
+
+##Conclusions
+
+Geographic Clustering: The presence of multiple states in the top 10 suggests potential geographic clusters of chronic diseases. Further investigation could explore factors like environmental conditions, lifestyle habits, and healthcare access in these regions.
+
+Socioeconomic Factors: Socioeconomic factors like income, education, and occupation can influence the prevalence of chronic diseases. Analyzing these factors in the top 10 cities could provide valuable insights.
+Healthcare Access and Utilization: Access to quality healthcare and healthcare utilization rates can impact the diagnosis and management of chronic diseases. It would be beneficial to examine these factors in the top 10 cities.
+
+Lifestyle Factors: Lifestyle factors like diet, physical activity, and smoking can contribute to the development of chronic diseases. Investigating these factors in the top 10 cities could identify areas for potential intervention.
+
+Genetic Predisposition: Genetic factors may play a role in the development of certain chronic diseases. Further research is needed to explore the genetic factors contributing to chronic diseases in these populations.
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
